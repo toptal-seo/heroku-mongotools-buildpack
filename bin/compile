@@ -1,0 +1,70 @@
+#!/bin/bash
+# usage: bin/compile <build-dir> <cache-dir> <env-dir>
+
+set -eo pipefail
+
+if [[ $(uname) == "Darwin" ]]; then
+    sedf() { command sed -l "$@"; }
+else
+    sedf() { command sed -u "$@"; }
+fi
+
+indent() {
+  sedf "s/^/       /"
+}
+
+tolower() {
+    echo "$@" | tr "[:upper:]" "[:lower:]"
+}
+
+header(){
+  echo "-----> $1"
+}
+
+mkdir -p "$1" "$2"
+build=$(cd "$1/" && pwd)
+cache=$(cd "$2/" && pwd)
+env_dir="$3"
+arch=$(tolower $(uname -m))
+if [[ $arch == "x86_64" ]]; then
+    arch="amd64"
+fi
+plat=$(tolower $(uname))-$arch
+
+if [[ -e $build/bin && ! -d $build/bin ]]; then
+    echo >&2 " !     File bin exists and is not a directory."
+    exit 1
+fi
+
+header "Downloading mongo-mools"
+FILE="mongodb-database-tools_100.3.0_amd64.deb"
+MONGO_TOOLS_VERSION="4.3"
+MONGOCACHE="${cache:?}/mongo-tools"
+if [[ ! -d "$MONGOCACHE" ]];then
+  mkdir "$MONGOCACHE"
+fi
+
+OUTPUT="$MONGOCACHE/${FILE}"
+curl "http://repo.mongodb.org/apt/ubuntu/dists/trusty/mongodb-org/${MONGO_TOOLS_VERSION}/multiverse/binary-${arch}/${FILE}" > "$OUTPUT"
+
+header "Installing mongo-tools"
+cd "${MONGOCACHE}"
+# tar xvf $FILE works on darwin, on linux it must be "ar vx"
+header "Decompressing mongo-mools deb"
+ar vx "${FILE}" | indent
+
+header "Decompressing data.tar.gz"
+tar xvf "data.tar.xz" | indent
+
+declare -a tools=("mongodump" "mongorestore" "mongoimport" "mongoexport")
+
+for tool in "${tools[@]}"
+do
+  cp "usr/bin/$tool" "$build/bin/$tool"
+  chmod +x "$build/bin/$tool"
+done
+
+header "Cleaning up"
+rm -rf "$MONGOCACHE"
+
+header "Mongo Tools Buildpack Complete"
